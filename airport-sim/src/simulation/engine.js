@@ -1,5 +1,5 @@
 import {
-  GATES, AIRLINES, SPONSORS,
+  GATES, APRON_STANDS, AIRLINES,
   APR_Y, TAXI_IN_Y, TAXI_OUT_Y, HOLD1_X,
   RWY1_Y, RWY1_X0, RWY1_X1,
   RWY2_Y, RWY2_X0, RWY2_X1,
@@ -7,20 +7,35 @@ import {
 } from './constants.js';
 import { getSeason, spawnWeatherParticle, updateWeatherParticle, SEASON_WEATHER } from './timeWeather.js';
 
+// 게이트(브릿지) + 원격 주기장을 합친 전체 주기 슬롯 (최대 동시 수용 대수)
+const SLOTS = [...GATES, ...APRON_STANDS];
+
 let _pid = 0;
 function rand(a, b) { return a + Math.random() * (b - a); }
 function randInt(a, b) { return Math.floor(rand(a, b)); }
 function pick(arr) { return arr[randInt(0, arr.length)]; }
 
-function makePlane(gi) {
+// 아직 못 본 등록 항공편만 registry 큐에 추가 (중복 방지)
+export function addToRegistry(sim, flights) {
+  const reg = sim.registry;
+  for (const f of flights) {
+    if (!reg.seenCodes.has(f.code)) {
+      reg.seenCodes.add(f.code);
+      reg.queue.push(f);
+    }
+  }
+}
+
+// 등록된 항공편만 슬롯에 배정 (미등록 비행기는 만들지 않음)
+function makePlane(gi, flight) {
   return {
     id: ++_pid,
     gi,
-    gate: GATES[gi],
+    gate: SLOTS[gi],
     airline: pick(AIRLINES),
-    sponsor: pick(SPONSORS),
-    tail: 'HL' + randInt(7000, 8000),
-    x: GATES[gi].x,
+    sponsor: { name: flight.name, desc: flight.desc },
+    tail: flight.code,
+    x: SLOTS[gi].x,
     y: APR_Y,
     vx: 0,
     vy: 0,
@@ -30,11 +45,23 @@ function makePlane(gi) {
     cap: randInt(140, 200),
     pax: 0,
     state: 'boarding',
-    t: Math.random() * 6000,   // stagger startup
+    t: 0,
     boardT:  rand(3000, 7000),
     debordT: rand(2000, 4000),
     flyT:    rand(8000, 16000),
   };
+}
+
+// 빈 슬롯(게이트 또는 주기장)에 대기 중인 등록 항공편을 배정
+function spawnFromRegistry(sim) {
+  const reg = sim.registry;
+  if (reg.queue.length === 0) return;
+  const occupied = new Set(sim.planes.map(p => p.gi));
+  for (let gi = 0; gi < SLOTS.length && reg.queue.length > 0; gi++) {
+    if (occupied.has(gi)) continue;
+    sim.planes.push(makePlane(gi, reg.queue.shift()));
+    occupied.add(gi);
+  }
 }
 
 // ── 활주로 관리 ────────────────────────────────────────────────
@@ -74,17 +101,19 @@ function taxiInBlocked(p, planes) {
 export function createSimulation() {
   const season = getSeason();
   return {
-    planes: GATES.map((_, i) => makePlane(i)),
+    planes: [],
     dots:   [],
     stats:  { takeoffs: 0, landings: 0, pax: 0 },
     rwy1:   { busy: false, holder: null },  // 이륙 전용
     rwy2:   { busy: false, holder: null },  // 착륙 전용
     wx:     { season, type: SEASON_WEATHER[season], particles: [] },
+    registry: { queue: [], seenCodes: new Set() },  // 등록된 항공편 대기열
   };
 }
 
 export function updateSimulation(sim, dt) {
   updateWeather(sim, dt);
+  spawnFromRegistry(sim);
 
   const { dots } = sim;
   for (let i = dots.length - 1; i >= 0; i--) {
@@ -97,6 +126,7 @@ export function updateSimulation(sim, dt) {
   }
 
   sim.planes.forEach(p => updatePlane(p, dt, sim));
+  sim.planes = sim.planes.filter(p => p.state !== 'done');
 }
 
 function updateWeather(sim, dt) {
@@ -275,15 +305,7 @@ function updatePlane(p, dt, sim) {
         stats.pax++;
       }
       if (p.pax <= 0 && p.t > p.debordT) {
-        p.state = 'boarding';
-        p.t = 0;
-        p.boardT  = rand(3000, 7000);
-        p.debordT = rand(2000, 4000);
-        p.pax = 0; p.pitch = 0; p.gearDown = true; p.dir = 1; p.vx = 0; p.vy = 0;
-        p.x = p.gate.x; p.y = APR_Y;
-        p.airline  = pick(AIRLINES);
-        p.sponsor  = pick(SPONSORS);
-        p.tail     = 'HL' + randInt(7000, 8000);
+        p.state = 'done';  // 운항 완료 → 게이트 비움, 다음 등록 항공편에 배정
       }
       break;
     }

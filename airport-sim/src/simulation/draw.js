@@ -3,7 +3,7 @@ import {
   GND_Y, APR_Y, TAXI_IN_Y, TAXI_OUT_Y, HOLD1_X,
   RWY1_Y, RWY1_H, RWY1_X0, RWY1_X1,
   RWY2_Y, RWY2_H, RWY2_X0, RWY2_X1,
-  GATES,
+  GATES, APRON_STANDS,
 } from './constants.js';
 import { STARS } from './timeWeather.js';
 
@@ -322,6 +322,35 @@ export function drawTaxiway(ctx) {
   ctx.setLineDash([]);
 }
 
+// ── 원격 주기장 (게이트 없이 계류만 하는 구역, 세계 공간) ───────
+export function drawApron(ctx) {
+  const y = APR_Y;
+  const first = APRON_STANDS[0].x, last = APRON_STANDS[APRON_STANDS.length - 1].x;
+
+  ctx.save();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.font = 'bold 9px "Pretendard Variable", Pretendard, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('주기장', (first + last) / 2, y - 22);
+
+  ctx.strokeStyle = '#f9a825';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  APRON_STANDS.forEach(stand => {
+    ctx.strokeRect(stand.x - 14, y - 12, 28, 24);
+  });
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#ffca28';
+  ctx.font = '7px "Courier New", monospace';
+  APRON_STANDS.forEach((stand, i) => {
+    if (i % 2 === 0) ctx.fillText(stand.id, stand.x, y + 23);
+  });
+
+  ctx.restore();
+}
+
 // ── 승객 점 (세계 공간) ─────────────────────────────────────────
 export function drawDots(ctx, dots) {
   dots.forEach(d => {
@@ -395,19 +424,60 @@ export function drawPlane(ctx, p) {
   drawPlaneShape(ctx, p.airline.body, p.airline.tail, p.gearDown);
   ctx.restore();
 
-  // 광고 배너 (꼬리 날개 위, 텍스트는 뒤집기 문제 없도록 세계 공간에서 그림)
+  // 광고 배너 (기체 뒤로 견인줄에 매달려 펄럭이는 대형 현수막, 텍스트는 뒤집기 문제 없도록 세계 공간에서 그림)
   if (p.sponsor) {
-    const tailX = p.dir > 0 ? p.x - 38 : p.x + 38;
-    const tailY = p.y - 20;
+    const dir = p.dir > 0 ? 1 : -1;
+    const hookX = p.x - dir * 38, hookY = p.y - 2;   // 꼬리 견인 고리
+    const ropeLen = 20, bw = 96, bh = 26;
+    const bx = hookX - dir * ropeLen;                 // 배너 앞쪽 끝
+    const by = hookY + 3;
+    const now = Date.now();
+
     ctx.save();
+
+    // 견인줄
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(hookX, hookY);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+
+    // 펄럭이는 천 형태의 배너 (파형 상/하단 경계)
+    const segs = 7;
+    ctx.beginPath();
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const sx = bx - dir * bw * t;
+      const wave = Math.sin(now * 0.005 + t * 7 + p.id) * 2.5;
+      const py = by - bh / 2 + wave;
+      if (i === 0) ctx.moveTo(sx, py); else ctx.lineTo(sx, py);
+    }
+    for (let i = segs; i >= 0; i--) {
+      const t = i / segs;
+      const sx = bx - dir * bw * t;
+      const wave = Math.sin(now * 0.005 + t * 7 + p.id) * 2.5;
+      const py = by + bh / 2 + wave;
+      ctx.lineTo(sx, py);
+    }
+    ctx.closePath();
     ctx.fillStyle = '#f57f17';
-    ctx.fillRect(tailX - 14, tailY - 7, 28, 12);
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 7px "Malgun Gothic", sans-serif';
+    ctx.fill();
+    ctx.strokeStyle = '#e65100';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 스폰서 로고명 + 광고 문구 (2줄)
+    const midX = bx - dir * bw * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(p.sponsor, tailX, tailY);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 9px "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif';
+    ctx.fillText(p.sponsor.name, midX, by - 6);
+    ctx.font = '8px "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif';
+    ctx.fillText(p.sponsor.desc, midX, by + 6);
     ctx.textBaseline = 'alphabetic';
+
     ctx.restore();
   }
 

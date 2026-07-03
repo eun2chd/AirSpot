@@ -1,8 +1,45 @@
+:root {
+  /* 배경 */
+  --bg-1: #071526;
+  --bg-2: #0b1f33;
+  --bg-3: #102a43;
+
+  /* 포인트 네온 */
+  --neon-1: #00e5ff;
+  --neon-2: #38bdf8;
+  --neon-3: #22d3ee;
+
+  /* 경고/강조 */
+  --warn-1: #ff8a00;
+  --warn-2: #f59e0b;
+  --warn-3: #ffb020;
+
+  /* 성공/이륙 완료 */
+  --ok-1: #22c55e;
+  --ok-2: #4ade80;
+
+  /* 위험/지연/취소 */
+  --danger-1: #ef4444;
+  --danger-2: #f43f5e;
+
+  /* 글자 */
+  --text-1: #e5f6ff;
+  --text-2: #b8d7e8;
+  --text-muted-1: #7fa6b8;
+  --text-muted-2: #64748b;
+
+  /* 터미널 느낌은 Courier New가 담당, 한글은 Pretendard로 폴백 */
+  --font-terminal: 'Courier New', 'Pretendard Variable', Pretendard, monospace;
+  --font-ui: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, 'Malgun Gothic', sans-serif;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  background: #0a0e1a;
-  font-family: 'Courier New', monospace;
+  background: var(--bg-1);
+  color: var(--text-1);
+  font-family: var(--font-terminal);
   overflow: hidden;
 }
 

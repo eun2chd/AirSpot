@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { VIEW_W, VIEW_H, WORLD_W } from '../simulation/constants.js';
-import { createSimulation, updateSimulation } from '../simulation/engine.js';
+import { createSimulation, updateSimulation, addToRegistry } from '../simulation/engine.js';
 import {
   drawSky, drawGround, drawNightOverlay, drawNightLights,
-  drawTerminal, drawTower, drawRunway, drawTaxiway,
+  drawTerminal, drawTower, drawRunway, drawTaxiway, drawApron,
   drawDots, drawAirborneMinis, drawPlane, drawWeather,
 } from '../simulation/draw.js';
 import {
@@ -11,7 +11,7 @@ import {
   SKY_PALETTE, getAmbient, getSunPos, getMoonPos,
 } from '../simulation/timeWeather.js';
 
-export default function AirportCanvas({ onStats }) {
+export default function AirportCanvas({ onStats, registryFlights }) {
   const canvasRef    = useRef(null);
   const simRef       = useRef(null);
   const rafRef       = useRef(null);
@@ -112,6 +112,7 @@ export default function AirportCanvas({ onStats }) {
       drawTower(ctx);
       drawRunway(ctx);
       drawTaxiway(ctx);
+      drawApron(ctx);
       drawDots(ctx, dots);
       planes.forEach(p => drawPlane(ctx, p));
       drawNightLights(ctx, ambient);
@@ -164,6 +165,12 @@ export default function AirportCanvas({ onStats }) {
       canvas.removeEventListener('touchend',   onMouseUp);
     };
   }, []);
+
+  useEffect(() => {
+    if (simRef.current && registryFlights?.length) {
+      addToRegistry(simRef.current, registryFlights);
+    }
+  }, [registryFlights]);
 
   return (
     <div style={{ width: '100vw', overflow: 'hidden' }}>

@@ -143,8 +143,8 @@ export function updateWeatherParticle(p) {
 }
 
 export const SEASON_LABEL = {
-  spring: '🌸 봄', summer: '⛈ 여름 (장마)', autumn: '🍂 가을', winter: '❄ 겨울',
+  spring: '봄', summer: '여름 (장마)', autumn: '가을', winter: '겨울',
 };
 export const PHASE_LABEL = {
-  night: '🌙 야간', dawn: '🌄 새벽', sunrise: '🌅 일출', day: '☀ 낮', sunset: '🌇 일몰', dusk: '🌃 황혼',
+  night: '야간', dawn: '새벽', sunrise: '일출', day: '낮', sunset: '일몰', dusk: '황혼',
 };
