@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>✈ Airport Live</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0e1a; display:flex; flex-direction:column; align-items:center; padding:10px; font-family:'Courier New',monospace; }
+#title { color:#64b5f6; font-size:18px; font-weight:bold; letter-spacing:4px; margin-bottom:8px; }
+canvas { border:1px solid #1a3a5c; border-radius:4px; }
+#hud {
+  position:fixed; top:50px; right:15px;
+  background:rgba(5,15,35,0.92); border:1px solid #1a4060;
+  border-radius:6px; padding:12px 14px; color:#7ec8e3;
+  font-size:11px; min-width:210px;
+}
+#hud h3 { color:#00e5ff; font-size:12px; margin-bottom:8px; letter-spacing:2px; }
+.pi { margin:3px 0; padding:5px 6px; border-radius:3px; background:rgba(255,255,255,0.04); border-left:2px solid #1a4060; }
+.pi .tn { font-weight:bold; }
+.pi .st { font-size:10px; color:#aaa; }
+#sts { margin-top:10px; padding-top:8px; border-top:1px solid #1a4060; display:flex; gap:8px; }
+.stat { text-align:center; flex:1; }
+.stat .v { font-size:15px; font-weight:bold; color:#fff; }
+.stat .l { font-size:9px; color:#666; margin-top:1px; }
+</style>
+</head>
+<body>
+<div id="title">✈ AIRPORT LIVE SIMULATION</div>
+<canvas id="c"></canvas>
+<div id="hud">
+  <h3>LIVE STATUS</h3>
+  <div id="plist"></div>
+  <div id="sts"></div>
+</div>
+<script>
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+C.width = 1380; C.height = 680;
+const W = C.width, H = C.height;
+
+// Layout
+const GND_Y  = 420;   // horizon
+const RWY_Y  = 448;   // runway plane center y
+const RWY_H  = 40;    // runway height
+const RWY_X0 = 400;   // left threshold
+const RWY_X1 = 1360;  // right threshold
+const APR_Y  = 480;   // apron (parked planes) y
+const TAXI_Y = 462;   // taxiway y
+
+const GATES = [
+  { id:'A1', x:75  },
+  { id:'A2', x:158 },
+  { id:'A3', x:241 },
+  { id:'A4', x:324 },
+];
+
+const AIRLINES = [
+  { name:'KorAir',    body:'#1a237e', tail:'#c62828', accent:'#fff' },
+  { name:'SunAir',    body:'#e65100', tail:'#1565c0', accent:'#fff' },
+  { name:'GreenWing', body:'#1b5e20', tail:'#f9a825', accent:'#fff' },
+  { name:'RedStar',   body:'#880e4f', tail:'#e0e0e0', accent:'#fff' },
+];
+
+const stats = { takeoffs:0, landings:0, pax:0 };
+let pid = 0;
+const planes = [];
+const paxDots = [];
+
+// ── PLANE ──────────────────────────────────────────────────
+class Plane {
+  constructor(gi) {
+    this.id = ++pid;
+    this.gi = gi;
+    this.gate = GATES[gi];
+    this.airline = AIRLINES[Math.floor(Math.random()*AIRLINES.length)];
+    this.tail = 'HL' + (7000 + Math.floor(Math.random()*1000));
+    this.x = this.gate.x;
+    this.y = APR_Y;
+    this.vx = 0;
+    this.pitch = 0;
+    this.dir = 1;          // 1=right, -1=left
+    this.gearDown = true;
+    this.cap = 140 + Math.floor(Math.random()*60);
+    this.pax = 0;
+    this.state = 'boarding';
+    this.t = Math.random() * 6000;   // stagger
+    this.boardT  = 7000 + Math.random()*5000;
+    this.debordT = 5000 + Math.random()*3000;
+    this.flyT    = 10000 + Math.random()*8000;
+  }
+}
+
+function spawnDot(fx,fy,tx,ty,col) {
+  paxDots.push({ x:fx, y:fy, tx, ty, col, spd:0.7+Math.random()*0.6, done:false });
+}
+
+// ── INIT ───────────────────────────────────────────────────
+GATES.forEach((_,i) => planes.push(new Plane(i)));
+
+// ── UPDATE ─────────────────────────────────────────────────
+let lastT = 0;
+function tick(ts) {
+  const dt = Math.min(ts - lastT, 50);
+  lastT = ts;
+
+  // Pax dots
+  for (let i = paxDots.length-1; i >= 0; i--) {
+    const d = paxDots[i];
+    const dx = d.tx-d.x, dy = d.ty-d.y;
+    const dist = Math.sqrt(dx*dx+dy*dy);
+    if (dist < 1) { paxDots.splice(i,1); continue; }
+    d.x += dx/dist*d.spd;
+    d.y += dy/dist*d.spd;
+  }
+
+  planes.forEach(p => updatePlane(p, dt));
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function updatePlane(p, dt) {
+  p.t += dt;
+
+  switch(p.state) {
+
+    case 'boarding': {
+      if (p.pax < p.cap && Math.random() < 0.04) {
+        spawnDot(p.gate.x + (Math.random()-0.5)*30, GND_Y - 8,
+                 p.x - 10, p.y - 6, '#90caf9');
+        p.pax++;
+      }
+      if (p.t >= p.boardT) { p.state='pushback'; p.t=0; }
+      break;
+    }
+
+    case 'pushback': {
+      p.x -= 0.8;
+      if (p.t > 1800) { p.state='taxi_out'; p.t=0; p.dir=1; p.vx=1.8; }
+      break;
+    }
+
+    case 'taxi_out': {
+      p.x += p.vx;
+      if (p.x > RWY_X0 - 120 && p.y < TAXI_Y) p.y += 0.6;
+      if (p.x >= RWY_X0 && p.y >= TAXI_Y) {
+        p.y = RWY_Y; p.x = RWY_X0; p.vx = 0;
+        p.state = 'lineup'; p.t = 0;
+      }
+      break;
+    }
+
+    case 'lineup': {
+      if (p.t > 2500) { p.state='takeoff'; p.t=0; }
+      break;
+    }
+
+    case 'takeoff': {
+      p.vx = Math.min(p.vx + 0.2, 15);
+      p.x += p.vx;
+      if (p.vx > 9) {
+        p.pitch = Math.min(p.pitch + 0.018, 0.32);
+        p.y -= p.vx * Math.sin(p.pitch) * 0.7;
+        if (p.pitch > 0.15) p.gearDown = false;
+      }
+      if (p.x > W + 120) {
+        p.state='airborne'; p.t=0; stats.takeoffs++;
+        p.flyT = 10000 + Math.random()*8000;
+      }
+      break;
+    }
+
+    case 'airborne': {
+      // tiny plane drifting in sky (optional visual)
+      if (p.t > p.flyT) {
+        p.state='approach'; p.t=0;
+        p.x = W + 280; p.y = 210;
+        p.vx = -7.5; p.pitch = -0.1; p.dir = -1; p.gearDown = true;
+      }
+      break;
+    }
+
+    case 'approach': {
+      p.x += p.vx;
+      if (p.y < RWY_Y) p.y = Math.min(RWY_Y, p.y + 1.6);
+      if (p.y >= RWY_Y && p.x <= RWY_X1 && p.x >= RWY_X0 - 100) {
+        p.y = RWY_Y; p.pitch = 0;
+        p.state='landing'; p.t=0; stats.landings++;
+      }
+      break;
+    }
+
+    case 'landing': {
+      p.x += p.vx;
+      p.vx = Math.min(p.vx + 0.13, -1.8);
+      if (p.vx >= -1.8) { p.state='taxi_in'; p.t=0; p.vx=-1.8; }
+      break;
+    }
+
+    case 'taxi_in': {
+      p.x += p.vx;
+      if (p.x < RWY_X0 && p.y < APR_Y) p.y = Math.min(APR_Y, p.y + 0.6);
+      const gx = p.gate.x;
+      if (p.x <= gx + 5) {
+        p.x = gx; p.y = APR_Y; p.vx = 0; p.dir = 1;
+        p.state='deboarding'; p.t=0; p.pax = p.cap;
+      }
+      break;
+    }
+
+    case 'deboarding': {
+      if (p.pax > 0 && Math.random() < 0.05) {
+        spawnDot(p.x - 10, p.y - 6,
+                 p.gate.x + (Math.random()-0.5)*30, GND_Y - 8, '#ffcc80');
+        p.pax--; stats.pax++;
+      }
+      if (p.pax <= 0 && p.t > p.debordT) {
+        // reset
+        p.state='boarding'; p.t=0;
+        p.boardT = 7000+Math.random()*5000;
+        p.debordT = 5000+Math.random()*3000;
+        p.pax=0; p.pitch=0; p.gearDown=true; p.dir=1; p.vx=0;
+        p.x=p.gate.x; p.y=APR_Y;
+        p.airline = AIRLINES[Math.floor(Math.random()*AIRLINES.length)];
+        p.tail = 'HL'+(7000+Math.floor(Math.random()*1000));
+      }
+      break;
+    }
+  }
+}
+
+// ── DRAW ───────────────────────────────────────────────────
+function draw() {
+  ctx.clearRect(0,0,W,H);
+  drawSky();
+  drawGround();
+  drawTerminal();
+  drawTower();
+  drawRunway();
+  drawTaxiway();
+  paxDots.forEach(d => {
+    ctx.fillStyle = d.col;
+    ctx.fillRect(d.x-1, d.y-2, 2, 4);
+  });
+  planes.forEach(p => { if (p.state !== 'airborne') drawPlane(p); });
+  drawAirborneMinis();
+  updateHUD();
+}
+
+function drawSky() {
+  const g = ctx.createLinearGradient(0,0,0,GND_Y);
+  g.addColorStop(0,'#0d1b4b');
+  g.addColorStop(0.5,'#1565c0');
+  g.addColorStop(1,'#42a5f5');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,GND_Y);
+
+  // Sun
+  ctx.save();
+  ctx.shadowBlur=40; ctx.shadowColor='#fffde7';
+  ctx.beginPath(); ctx.arc(1150,85,32,0,Math.PI*2);
+  ctx.fillStyle='#fff9c4'; ctx.fill();
+  ctx.restore();
+
+  // Clouds
+  [[260,75,1.1],[680,105,0.85],[980,55,1.3],[480,130,0.7]].forEach(([x,y,s]) => cloud(x,y,s));
+}
+
+function cloud(cx,cy,s) {
+  ctx.fillStyle='rgba(255,255,255,0.72)';
+  [[0,0,26],[20,-8,20],[-18,-5,18],[38,2,15],[-34,4,14]].forEach(([dx,dy,r]) => {
+    ctx.beginPath(); ctx.arc(cx+dx*s,cy+dy*s,r*s,0,Math.PI*2); ctx.fill();
+  });
+}
+
+function drawGround() {
+  const g = ctx.createLinearGradient(0,GND_Y,0,H);
+  g.addColorStop(0,'#37474f'); g.addColorStop(1,'#263238');
+  ctx.fillStyle=g; ctx.fillRect(0,GND_Y,W,H-GND_Y);
+  // apron highlight (left area)
+  ctx.fillStyle='rgba(255,255,255,0.03)';
+  ctx.fillRect(0,GND_Y,RWY_X0+10,H-GND_Y);
+}
+
+function drawTerminal() {
+  const tx=0, ty=GND_Y-188, tw=370, th=188;
+  // Main body
+  ctx.fillStyle='#b0bec5'; ctx.fillRect(tx,ty,tw,th);
+  // Windows
+  ctx.fillStyle='#4fc3f7';
+  for(let wx=tx+18;wx<tx+tw-25;wx+=30)
+    for(let wy=ty+20;wy<ty+th-45;wy+=34)
+      ctx.fillRect(wx,wy,18,20);
+  // Roof
+  ctx.fillStyle='#78909c'; ctx.fillRect(tx,ty,tw,16);
+  // Label
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
+  ctx.fillText('TERMINAL',tx+tw/2,ty+th-10);
+  // Gate doors + labels
+  GATES.forEach(g => {
+    ctx.fillStyle='#263238'; ctx.fillRect(g.x-9,GND_Y-32,18,32);
+    ctx.fillStyle='#29b6f6'; ctx.fillRect(g.x-7,GND_Y-30,16,30);
+    ctx.fillStyle='#ffd54f'; ctx.font='bold 10px Courier New'; ctx.textAlign='center';
+    ctx.fillText(g.id, g.x, GND_Y+10);
+    // Jetway arm
+    ctx.strokeStyle='#607d8b'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(g.x, GND_Y); ctx.lineTo(g.x, APR_Y-18); ctx.stroke();
+  });
+}
+
+function drawTower() {
+  const tx=375, tw=38, baseY=GND_Y, topY=GND_Y-210;
+  // Body
+  ctx.beginPath();
+  ctx.moveTo(tx,baseY); ctx.lineTo(tx+tw,baseY);
+  ctx.lineTo(tx+tw-4,topY+62); ctx.lineTo(tx+4,topY+62);
+  ctx.closePath(); ctx.fillStyle='#90a4ae'; ctx.fill();
+  // Cab
+  ctx.fillStyle='#37474f'; ctx.fillRect(tx-10,topY,tw+20,62);
+  ctx.fillStyle='#4fc3f7'; ctx.fillRect(tx-6,topY+6,tw+12,46);
+  // Antenna
+  ctx.strokeStyle='#cfd8dc'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(tx+tw/2,topY); ctx.lineTo(tx+tw/2,topY-28); ctx.stroke();
+  const blink = Math.sin(Date.now()*0.006)>0;
+  ctx.fillStyle = blink ? '#ff1744':'#7f0000';
+  ctx.beginPath(); ctx.arc(tx+tw/2,topY-28,3.5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='9px Courier New'; ctx.textAlign='center';
+  ctx.fillText('TWR',tx+tw/2,baseY+12);
+}
+
+function drawRunway() {
+  // Surface
+  ctx.fillStyle='#546e7a';
+  ctx.fillRect(RWY_X0, GND_Y, RWY_X1-RWY_X0, RWY_H);
+  // Edges
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+  ctx.strokeRect(RWY_X0+1, GND_Y, RWY_X1-RWY_X0-2, RWY_H);
+  // Centerline dashes
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
+  ctx.setLineDash([40,28]);
+  ctx.beginPath(); ctx.moveTo(RWY_X0+80,RWY_Y); ctx.lineTo(RWY_X1-60,RWY_Y); ctx.stroke();
+  ctx.setLineDash([]);
+  // Threshold bars left
+  for(let i=0;i<8;i++) { ctx.fillStyle='#fff'; ctx.fillRect(RWY_X0+16+i*17,GND_Y+4,9,RWY_H-8); }
+  // Threshold bars right
+  for(let i=0;i<8;i++) { ctx.fillStyle='#fff'; ctx.fillRect(RWY_X1-16-i*17-9,GND_Y+4,9,RWY_H-8); }
+  // Numbers
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
+  ctx.fillText('36', RWY_X0+50, RWY_Y+5);
+  ctx.fillText('18', RWY_X1-40, RWY_Y+5);
+}
+
+function drawTaxiway() {
+  ctx.fillStyle='#455a64';
+  ctx.fillRect(0, GND_Y+RWY_H, RWY_X0+20, 28);
+  ctx.strokeStyle='#f9a825'; ctx.lineWidth=1.5;
+  ctx.setLineDash([18,14]);
+  ctx.beginPath();
+  ctx.moveTo(0, GND_Y+RWY_H+14);
+  ctx.lineTo(RWY_X0, GND_Y+RWY_H+14);
+  ctx.lineTo(RWY_X0, RWY_Y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawAirborneMinis() {
+  planes.filter(p => p.state === 'airborne').forEach((p,i) => {
+    // Draw a tiny plane icon in the sky
+    const mx = 800 + i*80 + Math.sin(Date.now()*0.0003 + i)*60;
+    const my = 80 + i*40;
+    ctx.save();
+    ctx.translate(mx,my);
+    ctx.fillStyle='rgba(255,255,255,0.5)';
+    ctx.fillRect(-12,-2,24,4);   // fuselage
+    ctx.fillRect(-4,2,8,6);      // wing
+    ctx.fillRect(-12,-6,6,4);    // tail fin
+    ctx.font='8px Courier New'; ctx.fillStyle='rgba(255,255,255,0.6)'; ctx.textAlign='center';
+    ctx.fillText(p.tail,0,18);
+    ctx.restore();
+  });
+}
+
+function drawPlane(p) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  if (p.dir < 0) ctx.scale(-1,1);
+  ctx.rotate(-p.pitch);
+  planeShape(p.airline.body, p.airline.tail, p.gearDown);
+  ctx.restore();
+
+  if (p.state==='boarding'||p.state==='deboarding') {
+    ctx.fillStyle='rgba(255,255,255,0.75)';
+    ctx.font='8px Courier New'; ctx.textAlign='center';
+    ctx.fillText(p.tail, p.x, p.y-36);
+  }
+}
+
+function planeShape(bodyCol, tailCol, gear) {
+  // Landing gear
+  if (gear) {
+    ctx.fillStyle='#444';
+    ctx.fillRect(-16,12,3,11); // nose gear
+    ctx.fillRect(7,12,4,13);
+    ctx.fillRect(16,12,4,13);
+    [[-14,23],[9,25],[18,25]].forEach(([x,y])=>{
+      ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fillStyle='#222'; ctx.fill();
+    });
+  }
+
+  // Fuselage
+  ctx.beginPath();
+  ctx.moveTo(-44,0);
+  ctx.lineTo(-40,-5);
+  ctx.lineTo(28,-8);
+  ctx.quadraticCurveTo(46,-8,52,-3);
+  ctx.quadraticCurveTo(56,0,52,3);
+  ctx.quadraticCurveTo(46,8,28,8);
+  ctx.lineTo(-40,5);
+  ctx.closePath();
+  ctx.fillStyle='#f0f0f0'; ctx.fill();
+  ctx.strokeStyle='#bbb'; ctx.lineWidth=0.5; ctx.stroke();
+
+  // Airline stripe
+  ctx.fillStyle=bodyCol;
+  ctx.beginPath();
+  ctx.moveTo(-40,-2); ctx.lineTo(46,-2); ctx.lineTo(46,3); ctx.lineTo(-40,3);
+  ctx.closePath(); ctx.fill();
+
+  // Windows
+  ctx.fillStyle='#b3e5fc';
+  for(let i=0;i<9;i++) ctx.fillRect(24-i*8,-6,5,4);
+
+  // Wing
+  ctx.beginPath();
+  ctx.moveTo(18,6); ctx.lineTo(-6,6); ctx.lineTo(-22,34); ctx.lineTo(8,34);
+  ctx.closePath(); ctx.fillStyle='#d8d8d8'; ctx.fill(); ctx.strokeStyle='#aaa'; ctx.lineWidth=0.5; ctx.stroke();
+
+  // Engine
+  ctx.beginPath(); ctx.ellipse(3,25,14,5,0,0,Math.PI*2);
+  ctx.fillStyle='#9e9e9e'; ctx.fill();
+  ctx.beginPath(); ctx.arc(-10,25,4,0,Math.PI*2); ctx.fillStyle='#555'; ctx.fill();
+
+  // Vertical stabilizer
+  ctx.beginPath();
+  ctx.moveTo(-32,-5); ctx.lineTo(-44,-5); ctx.lineTo(-44,-32); ctx.lineTo(-32,-12);
+  ctx.closePath(); ctx.fillStyle=tailCol; ctx.fill();
+
+  // Horizontal stabilizer
+  ctx.beginPath();
+  ctx.moveTo(-36,4); ctx.lineTo(-42,4); ctx.lineTo(-46,18); ctx.lineTo(-40,18);
+  ctx.closePath(); ctx.fillStyle='#e0e0e0'; ctx.fill();
+}
+
+// ── HUD ────────────────────────────────────────────────────
+const STATE_LABELS = {
+  boarding:'✈ 탑승 중', pushback:'↩ 후진 중', taxi_out:'→ 지상이동',
+  lineup:'⏳ 활주로 대기', takeoff:'🚀 이륙 활주', airborne:'☁ 비행 중',
+  approach:'↘ 접근 중', landing:'🛬 착륙', taxi_in:'← 귀환 이동', deboarding:'🚶 하기 중',
+};
+
+function updateHUD() {
+  document.getElementById('plist').innerHTML = planes.map(p => {
+    const col = p.airline.body === '#1a237e' ? '#90caf9' : p.airline.body;
+    const pct = p.state==='boarding' ? ` <span style="color:#666">${p.pax}/${p.cap}</span>` : '';
+    return `<div class="pi">
+      <span class="tn" style="color:${col}">${p.tail}</span>
+      <span style="color:#555"> ${p.airline.name}</span>${pct}<br>
+      <span class="st">[${p.gate.id}] ${STATE_LABELS[p.state]||p.state}</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('sts').innerHTML = `
+    <div class="stat"><div class="v" style="color:#4caf50">${stats.takeoffs}</div><div class="l">이륙</div></div>
+    <div class="stat"><div class="v" style="color:#2196f3">${stats.landings}</div><div class="l">착륙</div></div>
+    <div class="stat"><div class="v" style="color:#ff9800">${stats.pax.toLocaleString()}</div><div class="l">승객</div></div>
+  `;
+}
+
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
